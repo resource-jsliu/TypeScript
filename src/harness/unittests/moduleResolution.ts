@@ -20,7 +20,7 @@ namespace ts {
     }
 
     export function createResolvedModule(resolvedFileName: string, isExternalLibraryImport = false): ResolvedModuleFull {
-        return { resolvedFileName, extension: extensionFromPath(resolvedFileName), isExternalLibraryImport };
+        return { resolvedFileName, originalPath: undefined, extension: extensionFromPath(resolvedFileName), isExternalLibraryImport };
     }
 
     interface File {
@@ -313,7 +313,7 @@ namespace ts {
                 const host = createModuleResolutionHost(/*hasDirectoryExists*/ true, { name: realFileName, symlinks: [symlinkFileName] });
                 const resolution = nodeModuleNameResolver("linked", "/app/app.ts", { preserveSymlinks }, host);
                 const resolvedFileName = preserveSymlinks ? symlinkFileName : realFileName;
-                checkResolvedModule(resolution.resolvedModule, { resolvedFileName, isExternalLibraryImport: true, extension: Extension.Dts });
+                checkResolvedModule(resolution.resolvedModule, createResolvedModule(resolvedFileName, /*isExternalLibraryImport*/ true));
             });
         }
     });
@@ -338,7 +338,8 @@ namespace ts {
                     const path = normalizePath(combinePaths(currentDirectory, fileName));
                     return files.has(path);
                 },
-                readFile: notImplemented
+                readFile: notImplemented,
+                realpath: undefined, //kill
             };
 
             const program = createProgram(rootFiles, options, host);
@@ -426,7 +427,8 @@ export = C;
                     const path = getCanonicalFileName(normalizePath(combinePaths(currentDirectory, fileName)));
                     return files.has(path);
                 },
-                readFile: notImplemented
+                readFile: notImplemented,
+                realpath: undefined, //kill
             };
             const program = createProgram(rootFiles, options, host);
             const diagnostics = sortAndDeduplicateDiagnostics([...program.getSemanticDiagnostics(), ...program.getOptionsDiagnostics()]);
@@ -956,6 +958,7 @@ import b = require("./moduleB");
             const host: ModuleResolutionHost = {
                 readFile: notImplemented,
                 fileExists: notImplemented,
+                realpath: undefined, //kill
                 directoryExists: _ => false
             };
 
@@ -1067,7 +1070,8 @@ import b = require("./moduleB");
                 readFile: fileName => {
                     const file = sourceFiles.get(fileName);
                     return file && file.text;
-                }
+                },
+                realpath: undefined, //kill
             };
             const program1 = createProgram(names, {}, compilerHost);
             const diagnostics1 = program1.getFileProcessingDiagnostics().getDiagnostics();
@@ -1104,6 +1108,7 @@ import b = require("./moduleB");
                 getNewLine: () => "\r\n",
                 useCaseSensitiveFileNames: () => false,
                 readFile: fileName => fileName === file.fileName ? file.text : undefined,
+                realpath: undefined, //kill
                 resolveModuleNames() {
                     assert(false, "resolveModuleNames should not be called");
                     return undefined;
@@ -1136,6 +1141,7 @@ import b = require("./moduleB");
                 getNewLine: () => "\r\n",
                 useCaseSensitiveFileNames: () => false,
                 readFile: fileName => fileName === file.fileName ? file.text : undefined,
+                realpath: undefined, //kill
                 resolveModuleNames(moduleNames: string[], _containingFile: string) {
                     assert.deepEqual(moduleNames, ["fs"]);
                     return [undefined];

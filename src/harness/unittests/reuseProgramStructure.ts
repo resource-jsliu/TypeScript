@@ -152,6 +152,7 @@ namespace ts {
                 const file = files.get(fileName);
                 return file && file.text;
             },
+            realpath: undefined, //kill
         };
     }
 

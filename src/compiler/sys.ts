@@ -66,7 +66,7 @@ namespace ts {
          */
         createHash?(data: string): string;
         getMemoryUsage?(): number;
-        realpath?(path: string): string;
+        realpath(path: string): string; //make non-optional
         /*@internal*/ getEnvironmentVariable(name: string): string;
         /*@internal*/ tryEnableSourceMapsForHost?(): void;
         /*@internal*/ debugMode?: boolean;

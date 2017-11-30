@@ -18,6 +18,7 @@ namespace ts {
                     getNewLine: () => "\n",
                     fileExists: (fileName) => fileMap.has(fileName),
                     readFile: (fileName) => fileMap.has(fileName) ? fileMap.get(fileName).text : undefined,
+                    realpath: undefined, //kill
                     writeFile: (fileName, text) => outputs.set(fileName, text),
                 };
 

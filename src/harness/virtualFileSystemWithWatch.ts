@@ -241,7 +241,7 @@ interface Array<T> {}`
         ignoreWatchInvokedWithTriggerAsFileCreate: boolean;
     }
 
-    export class TestServerHost implements server.ServerHost, FormatDiagnosticsHost {
+    export class TestServerHost implements server.ServerHost, FormatDiagnosticsHost, ModuleResolutionHost {
         args: string[] = [];
 
         private readonly output: string[] = [];
@@ -520,6 +520,8 @@ interface Array<T> {}`
             const fsEntry = this.fs.get(this.toFullPath(s));
             return isFile(fsEntry) ? fsEntry.content : undefined;
         }
+
+        realpath(path: string) { return path; } //rm
 
         getFileSize(s: string) {
             const path = this.toFullPath(s);

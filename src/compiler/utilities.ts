@@ -3670,6 +3670,10 @@ namespace ts {
         }
     }
 
+    export function forSomeAncestorDirectory(directory: string, callback: (directory: string) => boolean): boolean {
+        return !!forEachAncestorDirectory(directory, d => callback(d) ? true : undefined);
+    }
+
     export function typeHasCallOrConstructSignatures(type: Type, checker: TypeChecker) {
         return checker.getSignaturesOfType(type, SignatureKind.Call).length !== 0 || checker.getSignaturesOfType(type, SignatureKind.Construct).length !== 0;
     }

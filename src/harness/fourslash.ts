@@ -251,6 +251,7 @@ namespace FourSlash {
         }
 
         constructor(private basePath: string, private testType: FourSlashTestType, public testData: FourSlashData) {
+            debugger; //!
             // Create a new Services Adapter
             this.cancellationToken = new TestCancellationToken();
             let compilationOptions = convertGlobalOptionsToCompilerOptions(this.testData.globalOptions);
@@ -353,6 +354,10 @@ namespace FourSlash {
                 this.languageServiceAdapterHost.addScript(Harness.Compiler.defaultLibFileName,
                     Harness.Compiler.getDefaultLibrarySourceFile().text, /*isRootFile*/ false);
             }
+
+            //TODO: don't hardcode
+            debugger;
+            this.languageServiceAdapterHost.addSymlink("/node_modules/b/index.d.ts", "/node_modules/a/index.d.ts");
 
             this.formatCodeSettings = {
                 baseIndentSize: 0,

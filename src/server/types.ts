@@ -124,9 +124,12 @@ declare namespace ts.server {
     }
 
     /* @internal */
-    export interface InstallTypingHost extends JsTyping.TypingResolutionHost {
+    export interface InstallTypingHost extends JsTyping.TypingResolutionHost, ModuleResolutionHost {
         writeFile(path: string, content: string): void;
         createDirectory(path: string): void;
         watchFile?(path: string, callback: FileWatcherCallback, pollingInterval?: number): FileWatcher;
+        //kill
+        directoryExists(directoryName: string): boolean;
+        readFile(path: string, encoding?: string): string | undefined;
     }
 }

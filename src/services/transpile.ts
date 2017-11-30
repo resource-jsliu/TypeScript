@@ -93,6 +93,7 @@ namespace ts {
             getNewLine: () => newLine,
             fileExists: (fileName): boolean => fileName === inputFileName,
             readFile: () => "",
+            realpath: undefined, //rm
             directoryExists: () => true,
             getDirectories: () => []
         };

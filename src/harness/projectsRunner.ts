@@ -188,6 +188,7 @@ class ProjectRunner extends RunnerBase {
                     getNewLine: () => Harness.IO.newLine(),
                     fileExists: fileName => fileName === Harness.Compiler.defaultLibFileName ||  getSourceFileText(fileName) !== undefined,
                     readFile: fileName => Harness.IO.readFile(fileName),
+                    realpath: undefined, //kill
                     getDirectories: path => Harness.IO.getDirectories(path)
                 };
             }

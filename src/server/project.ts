@@ -131,7 +131,7 @@ namespace ts.server {
         public languageServiceEnabled = true;
 
         readonly trace?: (s: string) => void;
-        readonly realpath?: (path: string) => string;
+        readonly realpath: (path: string) => string; //todo: make optional again
 
         /*@internal*/
         hasInvalidatedResolution: HasInvalidatedResolution;

@@ -33,6 +33,7 @@ namespace ts {
                 getScriptSnapshot: name => snapFor(name),
                 getDefaultLibFileName: () => "lib.d.ts",
                 getCurrentDirectory: () => "",
+                realpath: undefined, //!
             };
             return ts.createLanguageService(lshost);
         }

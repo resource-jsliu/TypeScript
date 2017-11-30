@@ -2478,7 +2478,7 @@ namespace ts {
         // Stores a mapping 'external module reference text' -> 'resolved file name' | undefined
         // It is used to resolve module names in the checker.
         // Content of this field should never be used directly - use getResolvedModuleFileName/setResolvedModuleFileName functions instead
-        /* @internal */ resolvedModules: Map<ResolvedModuleFull>;
+        /* @internal */ resolvedModules: Map<ResolvedModuleFull>; //ding ding ding
         /* @internal */ resolvedTypeReferenceDirectiveNames: Map<ResolvedTypeReferenceDirective>;
         /* @internal */ imports: ReadonlyArray<StringLiteral>;
         // Identifier only if `declare global`
@@ -4191,7 +4191,7 @@ namespace ts {
          * Resolve a symbolic link.
          * @see https://nodejs.org/api/fs.html#fs_fs_realpathsync_path_options
          */
-        realpath?(path: string): string;
+        realpath(path: string): string; //was optional
         getCurrentDirectory?(): string;
         getDirectories?(path: string): string[];
     }
@@ -4216,6 +4216,8 @@ namespace ts {
      * If changing this, remember to change `moduleResolutionIsEqualTo`.
      */
     export interface ResolvedModuleFull extends ResolvedModule {
+        /* @internal */
+        readonly originalPath: string | undefined;
         /**
          * Extension of resolvedFileName. This must match what's at the end of resolvedFileName.
          * This is optional for backwards-compatibility, but will be added if not provided.

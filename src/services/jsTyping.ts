@@ -9,7 +9,7 @@
 namespace ts.JsTyping {
 
     export interface TypingResolutionHost {
-        directoryExists(path: string): boolean;
+        directoryExists(directoryName: string): boolean;
         fileExists(fileName: string): boolean;
         readFile(path: string, encoding?: string): string | undefined;
         readDirectory(rootDir: string, extensions: ReadonlyArray<string>, excludes: ReadonlyArray<string>, includes: ReadonlyArray<string>, depth?: number): string[];

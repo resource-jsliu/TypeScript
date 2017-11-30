@@ -907,6 +907,7 @@ namespace Harness {
             currentDirectory: string,
             newLineKind?: ts.NewLineKind,
             libFiles?: string): ts.CompilerHost {
+            debugger; //kill
 
             // Local get canonical file name function, that depends on passed in parameter for useCaseSensitiveFileNames
             const getCanonicalFileName = ts.createGetCanonicalFileName(useCaseSensitiveFileNames);
