@@ -23,6 +23,7 @@ var x1: number = m;
 //// [es6ImportDefaultBindingFollowedWithNamedImportInEs5_0.js]
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.m = exports.x = exports.a = void 0;
 exports.a = 10;
 exports.x = exports.a;
 exports.m = exports.a;
@@ -47,3 +48,4 @@ export declare var a: number;
 export declare var x: number;
 export declare var m: number;
 //// [es6ImportDefaultBindingFollowedWithNamedImportInEs5_1.d.ts]
+export {};

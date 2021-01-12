@@ -99,6 +99,7 @@ class GlobalConstructorWithParameterInitializer {
 //// [declFileConstructors_0.js]
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ConstructorWithParameterInitializer = exports.ConstructorWithOptionalParameterProperty = exports.ConstructorWithPrivateParameterProperty = exports.ConstructorWithPublicParameterProperty = exports.ConstructorWithOverloads = exports.ConstructorWithRestParamters = exports.ConstructorWithParameters = exports.SimpleConstructor = void 0;
 var SimpleConstructor = /** @class */ (function () {
     /** This comment should appear for foo*/
     function SimpleConstructor() {
@@ -109,8 +110,8 @@ exports.SimpleConstructor = SimpleConstructor;
 var ConstructorWithParameters = /** @class */ (function () {
     /** This is comment for function signature*/
     function ConstructorWithParameters(/** this is comment about a*/ a, 
-        /** this is comment for b*/
-        b) {
+    /** this is comment for b*/
+    b) {
         var d = a;
     }
     return ConstructorWithParameters;
@@ -172,8 +173,8 @@ var GlobalSimpleConstructor = /** @class */ (function () {
 var GlobalConstructorWithParameters = /** @class */ (function () {
     /** This is comment for function signature*/
     function GlobalConstructorWithParameters(/** this is comment about a*/ a, 
-        /** this is comment for b*/
-        b) {
+    /** this is comment for b*/
+    b) {
         var d = a;
     }
     return GlobalConstructorWithParameters;
@@ -228,8 +229,8 @@ export declare class SimpleConstructor {
 export declare class ConstructorWithParameters {
     /** This is comment for function signature*/
     constructor(/** this is comment about a*/ a: string, 
-        /** this is comment for b*/
-        b: number);
+    /** this is comment for b*/
+    b: number);
 }
 export declare class ConstructorWithRestParamters {
     constructor(a: string, ...rests: string[]);
@@ -247,7 +248,7 @@ export declare class ConstructorWithPrivateParameterProperty {
     constructor(x: string);
 }
 export declare class ConstructorWithOptionalParameterProperty {
-    x: string;
+    x?: string;
     constructor(x?: string);
 }
 export declare class ConstructorWithParameterInitializer {
@@ -262,8 +263,8 @@ declare class GlobalSimpleConstructor {
 declare class GlobalConstructorWithParameters {
     /** This is comment for function signature*/
     constructor(/** this is comment about a*/ a: string, 
-        /** this is comment for b*/
-        b: number);
+    /** this is comment for b*/
+    b: number);
 }
 declare class GlobalConstructorWithRestParamters {
     constructor(a: string, ...rests: string[]);
@@ -281,7 +282,7 @@ declare class GlobalConstructorWithPrivateParameterProperty {
     constructor(x: string);
 }
 declare class GlobalConstructorWithOptionalParameterProperty {
-    x: string;
+    x?: string;
     constructor(x?: string);
 }
 declare class GlobalConstructorWithParameterInitializer {

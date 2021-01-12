@@ -12,6 +12,7 @@ Foo();
 //// [10_lib.js]
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.Foo = void 0;
 function Foo() { }
 exports.Foo = Foo;
 //// [main.js]
@@ -24,3 +25,4 @@ _10_lib_1.Foo();
 //// [10_lib.d.ts]
 export declare function Foo(): void;
 //// [main.d.ts]
+export {};

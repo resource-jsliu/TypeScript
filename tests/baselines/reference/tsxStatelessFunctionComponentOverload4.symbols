@@ -44,7 +44,7 @@ const c2 = <OneThing {...obj} yy1 />; // type incompatible;
 >obj : Symbol(obj, Decl(file.tsx, 4, 3))
 >yy1 : Symbol(yy1, Decl(file.tsx, 13, 29))
 
-const c3 = <OneThing {...obj} {...{extra: "extra attr"}} />;  //  This is OK becuase all attribute are spread
+const c3 = <OneThing {...obj} {...{extra: "extra attr"}} />;  //  This is OK because all attribute are spread
 >c3 : Symbol(c3, Decl(file.tsx, 14, 5))
 >OneThing : Symbol(OneThing, Decl(file.tsx, 0, 31), Decl(file.tsx, 1, 41))
 >obj : Symbol(obj, Decl(file.tsx, 4, 3))
@@ -77,6 +77,7 @@ const c7 = <OneThing {...obj2} yy />;  // Should error as there is extra attribu
 declare function TestingOneThing(j: {"extra-data": string}): JSX.Element;
 >TestingOneThing : Symbol(TestingOneThing, Decl(file.tsx, 18, 37), Decl(file.tsx, 20, 73))
 >j : Symbol(j, Decl(file.tsx, 20, 33))
+>"extra-data" : Symbol("extra-data", Decl(file.tsx, 20, 37))
 >JSX : Symbol(JSX, Decl(react.d.ts, 2353, 1))
 >Element : Symbol(JSX.Element, Decl(react.d.ts, 2356, 27))
 

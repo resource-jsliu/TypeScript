@@ -1,6 +1,3 @@
-/// <reference path="formatting.ts"/>
-/// <reference path="..\..\compiler\scanner.ts"/>
-
 /* @internal */
 namespace ts.formatting {
     const standardScanner = createScanner(ScriptTarget.Latest, /*skipTrivia*/ false, LanguageVariant.Standard);
@@ -9,10 +6,13 @@ namespace ts.formatting {
     export interface FormattingScanner {
         advance(): void;
         isOnToken(): boolean;
+        isOnEOF(): boolean;
         readTokenInfo(n: Node): TokenInfo;
-        getCurrentLeadingTrivia(): TextRangeWithKind[];
+        readEOFTokenRange(): TextRangeWithKind;
+        getCurrentLeadingTrivia(): TextRangeWithKind[] | undefined;
         lastTrailingTriviaWasNewLine(): boolean;
         skipToEndOf(node: Node): void;
+        skipToStartOf(node: Node): void;
     }
 
     const enum ScanAction {
@@ -22,6 +22,7 @@ namespace ts.formatting {
         RescanTemplateToken,
         RescanJsxIdentifier,
         RescanJsxText,
+        RescanJsxAttributeValue,
     }
 
     export function getFormattingScanner<T>(text: string, languageVariant: LanguageVariant, startPos: number, endPos: number, cb: (scanner: FormattingScanner) => T): T {
@@ -31,8 +32,8 @@ namespace ts.formatting {
         scanner.setTextPos(startPos);
 
         let wasNewLine = true;
-        let leadingTrivia: TextRangeWithKind[] | undefined;
-        let trailingTrivia: TextRangeWithKind[] | undefined;
+        let leadingTrivia: TextRangeWithTriviaKind[] | undefined;
+        let trailingTrivia: TextRangeWithTriviaKind[] | undefined;
 
         let savedPos: number;
         let lastScanAction: ScanAction | undefined;
@@ -41,10 +42,13 @@ namespace ts.formatting {
         const res = cb({
             advance,
             readTokenInfo,
+            readEOFTokenRange,
             isOnToken,
+            isOnEOF,
             getCurrentLeadingTrivia: () => leadingTrivia,
             lastTrailingTriviaWasNewLine: () => wasNewLine,
             skipToEndOf,
+            skipToStartOf,
         });
 
         lastTokenInfo = undefined;
@@ -57,7 +61,7 @@ namespace ts.formatting {
             const isStarted = scanner.getStartPos() !== startPos;
 
             if (isStarted) {
-                wasNewLine = trailingTrivia && lastOrUndefined(trailingTrivia)!.kind === SyntaxKind.NewLineTrivia;
+                wasNewLine = !!trailingTrivia && last(trailingTrivia).kind === SyntaxKind.NewLineTrivia;
             }
             else {
                 scanner.scan();
@@ -77,7 +81,7 @@ namespace ts.formatting {
 
                 // consume leading trivia
                 scanner.scan();
-                const item = {
+                const item: TextRangeWithTriviaKind = {
                     pos,
                     end: scanner.getStartPos(),
                     kind: t
@@ -120,7 +124,13 @@ namespace ts.formatting {
         }
 
         function shouldRescanJsxText(node: Node): boolean {
-            return node.kind === SyntaxKind.JsxText;
+            const isJSXText = isJsxText(node);
+            if (isJSXText) {
+                const containingElement = findAncestor(node.parent, p => isJsxElement(p));
+                if (!containingElement) return false; // should never happen
+                return !isParenthesizedExpression(containingElement.parent);
+            }
+            return false;
         }
 
         function shouldRescanSlashToken(container: Node): boolean {
@@ -132,6 +142,10 @@ namespace ts.formatting {
                 container.kind === SyntaxKind.TemplateTail;
         }
 
+        function shouldRescanJsxAttributeValue(node: Node): boolean {
+            return node.parent && isJsxAttribute(node.parent) && node.parent.initializer === node;
+        }
+
         function startsWithSlashToken(t: SyntaxKind): boolean {
             return t === SyntaxKind.SlashToken || t === SyntaxKind.SlashEqualsToken;
         }
@@ -141,18 +155,13 @@ namespace ts.formatting {
 
             // normally scanner returns the smallest available token
             // check the kind of context node to determine if scanner should have more greedy behavior and consume more text.
-            const expectedScanAction =
-                shouldRescanGreaterThanToken(n)
-                ? ScanAction.RescanGreaterThanToken
-                : shouldRescanSlashToken(n)
-                    ? ScanAction.RescanSlashToken
-                    : shouldRescanTemplateToken(n)
-                        ? ScanAction.RescanTemplateToken
-                        : shouldRescanJsxIdentifier(n)
-                            ? ScanAction.RescanJsxIdentifier
-                            : shouldRescanJsxText(n)
-                            ? ScanAction.RescanJsxText
-                            : ScanAction.Scan;
+            const expectedScanAction = shouldRescanGreaterThanToken(n) ? ScanAction.RescanGreaterThanToken :
+                shouldRescanSlashToken(n) ? ScanAction.RescanSlashToken :
+                shouldRescanTemplateToken(n) ? ScanAction.RescanTemplateToken :
+                shouldRescanJsxIdentifier(n) ? ScanAction.RescanJsxIdentifier :
+                shouldRescanJsxText(n) ? ScanAction.RescanJsxText :
+                shouldRescanJsxAttributeValue(n) ? ScanAction.RescanJsxAttributeValue :
+                ScanAction.Scan;
 
             if (lastTokenInfo && expectedScanAction === lastScanAction) {
                 // readTokenInfo was called before with the same expected scan action.
@@ -173,11 +182,11 @@ namespace ts.formatting {
 
             let currentToken = getNextToken(n, expectedScanAction);
 
-            const token: TextRangeWithKind = {
-                pos: scanner.getStartPos(),
-                end: scanner.getTextPos(),
-                kind: currentToken
-            };
+            const token = createTextRangeWithKind(
+                scanner.getStartPos(),
+                scanner.getTextPos(),
+                currentToken,
+            );
 
             // consume trailing trivia
             if (trailingTrivia) {
@@ -188,11 +197,11 @@ namespace ts.formatting {
                 if (!isTrivia(currentToken)) {
                     break;
                 }
-                const trivia = {
-                    pos: scanner.getStartPos(),
-                    end: scanner.getTextPos(),
-                    kind: currentToken
-                };
+                const trivia = createTextRangeWithKind(
+                    scanner.getStartPos(),
+                    scanner.getTextPos(),
+                    currentToken,
+                );
 
                 if (!trailingTrivia) {
                     trailingTrivia = [];
@@ -235,7 +244,7 @@ namespace ts.formatting {
                 case ScanAction.RescanTemplateToken:
                     if (token === SyntaxKind.CloseBraceToken) {
                         lastScanAction = ScanAction.RescanTemplateToken;
-                        return scanner.reScanTemplateToken();
+                        return scanner.reScanTemplateToken(/* isTaggedTemplate */ false);
                     }
                     break;
                 case ScanAction.RescanJsxIdentifier:
@@ -244,6 +253,9 @@ namespace ts.formatting {
                 case ScanAction.RescanJsxText:
                     lastScanAction = ScanAction.RescanJsxText;
                     return scanner.reScanJsxToken();
+                case ScanAction.RescanJsxAttributeValue:
+                    lastScanAction = ScanAction.RescanJsxAttributeValue;
+                    return scanner.reScanJsxAttributeValue();
                 case ScanAction.Scan:
                     break;
                 default:
@@ -252,10 +264,20 @@ namespace ts.formatting {
             return token;
         }
 
+        function readEOFTokenRange(): TextRangeWithKind<SyntaxKind.EndOfFileToken> {
+            Debug.assert(isOnEOF());
+            return createTextRangeWithKind(scanner.getStartPos(), scanner.getTextPos(), SyntaxKind.EndOfFileToken);
+        }
+
         function isOnToken(): boolean {
             const current = lastTokenInfo ? lastTokenInfo.token.kind : scanner.getToken();
             const startPos = lastTokenInfo ? lastTokenInfo.token.pos : scanner.getStartPos();
             return startPos < endPos && current !== SyntaxKind.EndOfFileToken && !isTrivia(current);
+        }
+
+        function isOnEOF(): boolean {
+            const current = lastTokenInfo ? lastTokenInfo.token.kind : scanner.getToken();
+            return current === SyntaxKind.EndOfFileToken;
         }
 
         // when containing node in the tree is token
@@ -271,6 +293,16 @@ namespace ts.formatting {
 
         function skipToEndOf(node: Node): void {
             scanner.setTextPos(node.end);
+            savedPos = scanner.getStartPos();
+            lastScanAction = undefined;
+            lastTokenInfo = undefined;
+            wasNewLine = false;
+            leadingTrivia = undefined;
+            trailingTrivia = undefined;
+        }
+
+        function skipToStartOf(node: Node): void {
+            scanner.setTextPos(node.pos);
             savedPos = scanner.getStartPos();
             lastScanAction = undefined;
             lastTokenInfo = undefined;

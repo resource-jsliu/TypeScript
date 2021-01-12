@@ -386,6 +386,7 @@ Math.random() * 2 ? N["s"] : "a";
 });
 class C1 {
 }
+N.s, N.s;
 const o4 = {
     method1() {
         return s; // return type should not widen due to contextual type
@@ -429,16 +430,16 @@ declare function funcReturnConstCall(): symbol;
 declare function funcReturnLetCall(): symbol;
 declare function funcReturnVarCall(): symbol;
 declare function funcReturnConstCallWithTypeQuery(): typeof constCall;
-declare function genFuncYieldConstCall(): IterableIterator<symbol>;
-declare function genFuncYieldLetCall(): IterableIterator<symbol>;
-declare function genFuncYieldVarCall(): IterableIterator<symbol>;
+declare function genFuncYieldConstCall(): Generator<symbol, void, unknown>;
+declare function genFuncYieldLetCall(): Generator<symbol, void, unknown>;
+declare function genFuncYieldVarCall(): Generator<symbol, void, unknown>;
 declare function genFuncYieldConstCallWithTypeQuery(): IterableIterator<typeof constCall>;
 declare function asyncFuncReturnConstCall(): Promise<symbol>;
 declare function asyncFuncReturnLetCall(): Promise<symbol>;
 declare function asyncFuncReturnVarCall(): Promise<symbol>;
-declare function asyncGenFuncYieldConstCall(): AsyncIterableIterator<symbol>;
-declare function asyncGenFuncYieldLetCall(): AsyncIterableIterator<symbol>;
-declare function asyncGenFuncYieldVarCall(): AsyncIterableIterator<symbol>;
+declare function asyncGenFuncYieldConstCall(): AsyncGenerator<symbol, void, unknown>;
+declare function asyncGenFuncYieldLetCall(): AsyncGenerator<symbol, void, unknown>;
+declare function asyncGenFuncYieldVarCall(): AsyncGenerator<symbol, void, unknown>;
 declare class C {
     static readonly readonlyStaticCall: unique symbol;
     static readonly readonlyStaticType: unique symbol;
@@ -482,7 +483,7 @@ declare const constInitToLReadonlyTypeWithTypeQuery: typeof l.readonlyType;
 declare const constInitToLReadonlyNestedTypeWithTypeQuery: typeof l.nested.readonlyNestedType;
 declare const constInitToLReadonlyTypeWithIndexedAccess: L["readonlyType"];
 declare const constInitToLReadonlyNestedTypeWithIndexedAccess: L["nested"]["readonlyNestedType"];
-declare const promiseForConstCall: Promise<symbol>;
+declare const promiseForConstCall: Promise<typeof constCall>;
 declare const arrayOfConstCall: symbol[];
 declare const s: unique symbol;
 declare namespace N {
@@ -501,8 +502,8 @@ declare const o2: {
     c: symbol;
     method1(): symbol;
     method2(): Promise<symbol>;
-    method3(): AsyncIterableIterator<symbol>;
-    method4(): IterableIterator<symbol>;
+    method3(): AsyncGenerator<symbol, void, unknown>;
+    method4(): Generator<symbol, void, unknown>;
     method5(p?: symbol): symbol;
 };
 declare class C0 {
@@ -520,8 +521,8 @@ declare class C0 {
     f: symbol;
     method1(): symbol;
     method2(): Promise<symbol>;
-    method3(): AsyncIterableIterator<symbol>;
-    method4(): IterableIterator<symbol>;
+    method3(): AsyncGenerator<symbol, void, unknown>;
+    method4(): Generator<symbol, void, unknown>;
     method5(p?: symbol): symbol;
 }
 declare class C1 {

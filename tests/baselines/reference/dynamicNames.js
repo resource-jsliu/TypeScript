@@ -138,27 +138,33 @@ export const o1_s2 = o1[s2];
 export const o2: T0 = o1;
 
 // recursive declarations
-declare const rI: RI;
-interface RI {
-    x: "a";
+// (type parameter indirection courtesy of #20400)
+declare const rI: RI<"a">;
+rI.x
+interface RI<T extends "a" | "b"> {
+    x: T;
     [rI.x]: "b";
 }
 
-declare const rC: RC;
-declare class RC {
-    x: "a";
+declare const rC: RC<"a">;
+rC.x
+declare class RC<T extends "a" | "b"> {
+    x: T;
     [rC.x]: "b";
 }
+
 
 //// [module.js]
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.s0 = exports.c1 = exports.c0 = void 0;
 exports.c0 = "a";
 exports.c1 = 1;
 exports.s0 = Symbol();
 //// [main.js]
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.o2 = exports.o1_s2 = exports.o1_c5 = exports.o1_c4 = exports.o1 = exports.s2 = exports.c5 = exports.c4 = void 0;
 const module_1 = require("./module");
 var N;
 (function (N) {
@@ -205,6 +211,8 @@ exports.o1_c4 = exports.o1[exports.c4];
 exports.o1_c5 = exports.o1[exports.c5];
 exports.o1_s2 = exports.o1[exports.s2];
 exports.o2 = exports.o1;
+rI.x;
+rC.x;
 
 
 //// [module.d.ts]
@@ -234,9 +242,9 @@ export declare const c4 = "a";
 export declare const c5 = 1;
 export declare const s2: typeof s0;
 export declare const o1: {
-    [c4]: number;
-    [c5]: string;
-    [s2]: boolean;
+    a: number;
+    1: string;
+    [s0]: boolean;
 };
 export declare const o1_c4: number;
 export declare const o1_c5: string;

@@ -1,4 +1,4 @@
-/// <reference path="fourslash.ts"/>
+/// <reference path="../fourslash.ts"/>
 
 ////// interface
 ////interface IFoo[| {
@@ -26,7 +26,7 @@
 ////    }|]
 ////}|]
 ////switch(1)[| {
-//// case 1: break;
+////  case 1:[| break;|]
 ////}|]
 ////
 ////var array =[| [
@@ -97,4 +97,4 @@
 ////class AfterNestedNodes[| {
 ////}|]
 
-verify.outliningSpansInCurrentFile(test.ranges());
+verify.outliningSpansInCurrentFile(test.ranges(), "code");

@@ -1,88 +1,110 @@
 /* @internal */
 namespace ts.codefix {
-
-    export function newNodesToChanges(newNodes: Node[], insertAfter: Node, context: CodeFixContext) {
-        const sourceFile = context.sourceFile;
-
-        const changeTracker = textChanges.ChangeTracker.fromContext(context);
-
-        for (const newNode of newNodes) {
-            changeTracker.insertNodeAfter(sourceFile, insertAfter, newNode, { suffix: context.newLineCharacter });
-        }
-
-        const changes = changeTracker.getChanges();
-        if (!some(changes)) {
-            return changes;
-        }
-
-        Debug.assert(changes.length === 1);
-        const consolidatedChanges: FileTextChanges[] = [{
-            fileName: changes[0].fileName,
-            textChanges: [{
-                span: changes[0].textChanges[0].span,
-                newText: changes[0].textChanges.reduce((prev, cur) => prev + cur.newText, "")
-            }]
-
-        }];
-        return consolidatedChanges;
-    }
-
     /**
      * Finds members of the resolved type that are missing in the class pointed to by class decl
      * and generates source code for the missing members.
      * @param possiblyMissingSymbols The collection of symbols to filter and then get insertions for.
+     * @param importAdder If provided, type annotations will use identifier type references instead of ImportTypeNodes, and the missing imports will be added to the importAdder.
      * @returns Empty string iff there are no member insertions.
      */
-    export function createMissingMemberNodes(classDeclaration: ClassLikeDeclaration, possiblyMissingSymbols: Symbol[], checker: TypeChecker): Node[] {
-        const classMembers = classDeclaration.symbol.members;
-        const missingMembers = possiblyMissingSymbols.filter(symbol => !classMembers.has(symbol.escapedName));
-
-        let newNodes: Node[] = [];
-        for (const symbol of missingMembers) {
-            const newNode = createNewNodeForMemberSymbol(symbol, classDeclaration, checker);
-            if (newNode) {
-                if (Array.isArray(newNode)) {
-                    newNodes = newNodes.concat(newNode);
-                }
-                else {
-                    newNodes.push(newNode);
-                }
+    export function createMissingMemberNodes(classDeclaration: ClassLikeDeclaration, possiblyMissingSymbols: readonly Symbol[], sourceFile: SourceFile, context: TypeConstructionContext, preferences: UserPreferences, importAdder: ImportAdder | undefined, addClassElement: (node: ClassElement) => void): void {
+        const classMembers = classDeclaration.symbol.members!;
+        for (const symbol of possiblyMissingSymbols) {
+            if (!classMembers.has(symbol.escapedName)) {
+                addNewNodeForMemberSymbol(symbol, classDeclaration, sourceFile, context, preferences, importAdder, addClassElement);
             }
         }
-        return newNodes;
+    }
+
+    export function getNoopSymbolTrackerWithResolver(context: TypeConstructionContext): SymbolTracker {
+        return {
+            trackSymbol: noop,
+            moduleResolverHost: getModuleSpecifierResolverHost(context.program, context.host),
+        };
+    }
+
+    export interface TypeConstructionContext {
+        program: Program;
+        host: LanguageServiceHost;
     }
 
     /**
      * @returns Empty string iff there we can't figure out a representation for `symbol` in `enclosingDeclaration`.
      */
-    function createNewNodeForMemberSymbol(symbol: Symbol, enclosingDeclaration: ClassLikeDeclaration, checker: TypeChecker): Node[] | Node | undefined {
+    function addNewNodeForMemberSymbol(symbol: Symbol, enclosingDeclaration: ClassLikeDeclaration, sourceFile: SourceFile, context: TypeConstructionContext, preferences: UserPreferences, importAdder: ImportAdder | undefined, addClassElement: (node: Node) => void): void {
         const declarations = symbol.getDeclarations();
         if (!(declarations && declarations.length)) {
             return undefined;
         }
-
-        const declaration = declarations[0] as Declaration;
-        // Clone name to remove leading trivia.
-        const name = getSynthesizedClone(getNameOfDeclaration(declaration)) as PropertyName;
-        const visibilityModifier = createVisibilityModifier(getModifierFlags(declaration));
-        const modifiers = visibilityModifier ? createNodeArray([visibilityModifier]) : undefined;
+        const checker = context.program.getTypeChecker();
+        const scriptTarget = getEmitScriptTarget(context.program.getCompilerOptions());
+        const declaration = declarations[0];
+        const name = getSynthesizedDeepClone(getNameOfDeclaration(declaration), /*includeTrivia*/ false) as PropertyName;
+        const visibilityModifier = createVisibilityModifier(getEffectiveModifierFlags(declaration));
+        const modifiers = visibilityModifier ? factory.createNodeArray([visibilityModifier]) : undefined;
         const type = checker.getWidenedType(checker.getTypeOfSymbolAtLocation(symbol, enclosingDeclaration));
         const optional = !!(symbol.flags & SymbolFlags.Optional);
+        const ambient = !!(enclosingDeclaration.flags & NodeFlags.Ambient);
+        const quotePreference = getQuotePreference(sourceFile, preferences);
 
         switch (declaration.kind) {
-            case SyntaxKind.GetAccessor:
-            case SyntaxKind.SetAccessor:
             case SyntaxKind.PropertySignature:
             case SyntaxKind.PropertyDeclaration:
-                const typeNode = checker.typeToTypeNode(type, enclosingDeclaration);
-                const property = createProperty(
-                    /*decorators*/undefined,
+                const flags = quotePreference === QuotePreference.Single ? NodeBuilderFlags.UseSingleQuotesForStringLiteralType : undefined;
+                let typeNode = checker.typeToTypeNode(type, enclosingDeclaration, flags, getNoopSymbolTrackerWithResolver(context));
+                if (importAdder) {
+                    const importableReference = tryGetAutoImportableReferenceFromTypeNode(typeNode, scriptTarget);
+                    if (importableReference) {
+                        typeNode = importableReference.typeNode;
+                        importSymbols(importAdder, importableReference.symbols);
+                    }
+                }
+                addClassElement(factory.createPropertyDeclaration(
+                    /*decorators*/ undefined,
                     modifiers,
                     name,
-                    optional ? createToken(SyntaxKind.QuestionToken) : undefined,
+                    optional ? factory.createToken(SyntaxKind.QuestionToken) : undefined,
                     typeNode,
-                    /*initializer*/ undefined);
-                return property;
+                    /*initializer*/ undefined));
+                break;
+            case SyntaxKind.GetAccessor:
+            case SyntaxKind.SetAccessor: {
+                let typeNode = checker.typeToTypeNode(type, enclosingDeclaration, /*flags*/ undefined, getNoopSymbolTrackerWithResolver(context));
+                const allAccessors = getAllAccessorDeclarations(declarations, declaration as AccessorDeclaration);
+                const orderedAccessors = allAccessors.secondAccessor
+                    ? [allAccessors.firstAccessor, allAccessors.secondAccessor]
+                    : [allAccessors.firstAccessor];
+                if (importAdder) {
+                    const importableReference = tryGetAutoImportableReferenceFromTypeNode(typeNode, scriptTarget);
+                    if (importableReference) {
+                        typeNode = importableReference.typeNode;
+                        importSymbols(importAdder, importableReference.symbols);
+                    }
+                }
+                for (const accessor of orderedAccessors) {
+                    if (isGetAccessorDeclaration(accessor)) {
+                        addClassElement(factory.createGetAccessorDeclaration(
+                            /*decorators*/ undefined,
+                            modifiers,
+                            name,
+                            emptyArray,
+                            typeNode,
+                            ambient ? undefined : createStubbedMethodBody(quotePreference)));
+                    }
+                    else {
+                        Debug.assertNode(accessor, isSetAccessorDeclaration, "The counterpart to a getter should be a setter");
+                        const parameter = getSetAccessorValueParameter(accessor);
+                        const parameterName = parameter && isIdentifier(parameter.name) ? idText(parameter.name) : undefined;
+                        addClassElement(factory.createSetAccessorDeclaration(
+                            /*decorators*/ undefined,
+                            modifiers,
+                            name,
+                            createDummyParameters(1, [parameterName], [typeNode], 1, /*inJs*/ false),
+                            ambient ? undefined : createStubbedMethodBody(quotePreference)));
+                    }
+                }
+                break;
+            }
             case SyntaxKind.MethodSignature:
             case SyntaxKind.MethodDeclaration:
                 // The signature for the implementation appears as an entry in `signatures` iff
@@ -94,98 +116,234 @@ namespace ts.codefix {
                 // correspondence of declarations and signatures.
                 const signatures = checker.getSignaturesOfType(type, SignatureKind.Call);
                 if (!some(signatures)) {
-                    return undefined;
+                    break;
                 }
 
                 if (declarations.length === 1) {
-                    Debug.assert(signatures.length === 1);
+                    Debug.assert(signatures.length === 1, "One declaration implies one signature");
                     const signature = signatures[0];
-                    return signatureToMethodDeclaration(signature, enclosingDeclaration, createStubbedMethodBody());
+                    outputMethod(quotePreference, signature, modifiers, name, ambient ? undefined : createStubbedMethodBody(quotePreference));
+                    break;
                 }
 
-                const signatureDeclarations: MethodDeclaration[] = [];
                 for (const signature of signatures) {
-                    const methodDeclaration = signatureToMethodDeclaration(signature, enclosingDeclaration);
-                    if (methodDeclaration) {
-                        signatureDeclarations.push(methodDeclaration);
-                    }
+                    // Need to ensure nodes are fresh each time so they can have different positions.
+                    outputMethod(quotePreference, signature, getSynthesizedDeepClones(modifiers, /*includeTrivia*/ false), getSynthesizedDeepClone(name, /*includeTrivia*/ false));
                 }
 
-                if (declarations.length > signatures.length) {
-                    const signature = checker.getSignatureFromDeclaration(declarations[declarations.length - 1] as SignatureDeclaration);
-                    const methodDeclaration = signatureToMethodDeclaration(signature, enclosingDeclaration, createStubbedMethodBody());
-                    if (methodDeclaration) {
-                        signatureDeclarations.push(methodDeclaration);
+                if (!ambient) {
+                    if (declarations.length > signatures.length) {
+                        const signature = checker.getSignatureFromDeclaration(declarations[declarations.length - 1] as SignatureDeclaration)!;
+                        outputMethod(quotePreference, signature, modifiers, name, createStubbedMethodBody(quotePreference));
+                    }
+                    else {
+                        Debug.assert(declarations.length === signatures.length, "Declarations and signatures should match count");
+                        addClassElement(createMethodImplementingSignatures(signatures, name, optional, modifiers, quotePreference));
                     }
                 }
-                else {
-                    Debug.assert(declarations.length === signatures.length);
-                    const methodImplementingSignatures = createMethodImplementingSignatures(signatures, name, optional, modifiers);
-                    signatureDeclarations.push(methodImplementingSignatures);
-                }
-                return signatureDeclarations;
-            default:
-                return undefined;
+                break;
         }
 
-        function signatureToMethodDeclaration(signature: Signature, enclosingDeclaration: Node, body?: Block) {
-            const signatureDeclaration = <MethodDeclaration>checker.signatureToSignatureDeclaration(signature, SyntaxKind.MethodDeclaration, enclosingDeclaration, NodeBuilderFlags.SuppressAnyReturnType);
-            if (signatureDeclaration) {
-                signatureDeclaration.decorators = undefined;
-                signatureDeclaration.modifiers = modifiers;
-                signatureDeclaration.name = name;
-                signatureDeclaration.questionToken = optional ? createToken(SyntaxKind.QuestionToken) : undefined;
-                signatureDeclaration.body = body;
-            }
-            return signatureDeclaration;
+        function outputMethod(quotePreference: QuotePreference, signature: Signature, modifiers: NodeArray<Modifier> | undefined, name: PropertyName, body?: Block): void {
+            const method = signatureToMethodDeclaration(context, quotePreference, signature, enclosingDeclaration, modifiers, name, optional, body, importAdder);
+            if (method) addClassElement(method);
         }
     }
 
-    export function createMethodFromCallExpression(callExpression: CallExpression, methodName: string, includeTypeScriptSyntax: boolean, makeStatic: boolean): MethodDeclaration {
-        const parameters = createDummyParameters(callExpression.arguments.length, /*names*/ undefined, /*minArgumentCount*/ undefined, includeTypeScriptSyntax);
+    function signatureToMethodDeclaration(
+        context: TypeConstructionContext,
+        quotePreference: QuotePreference,
+        signature: Signature,
+        enclosingDeclaration: ClassLikeDeclaration,
+        modifiers: NodeArray<Modifier> | undefined,
+        name: PropertyName,
+        optional: boolean,
+        body: Block | undefined,
+        importAdder: ImportAdder | undefined,
+    ): MethodDeclaration | undefined {
+        const program = context.program;
+        const checker = program.getTypeChecker();
+        const scriptTarget = getEmitScriptTarget(program.getCompilerOptions());
+        const flags = NodeBuilderFlags.NoTruncation | NodeBuilderFlags.NoUndefinedOptionalParameterType | NodeBuilderFlags.SuppressAnyReturnType | (quotePreference === QuotePreference.Single ? NodeBuilderFlags.UseSingleQuotesForStringLiteralType : 0);
+        const signatureDeclaration = <MethodDeclaration>checker.signatureToSignatureDeclaration(signature, SyntaxKind.MethodDeclaration, enclosingDeclaration, flags, getNoopSymbolTrackerWithResolver(context));
+        if (!signatureDeclaration) {
+            return undefined;
+        }
 
-        let typeParameters: TypeParameterDeclaration[];
-        if (includeTypeScriptSyntax) {
-            const typeArgCount = length(callExpression.typeArguments);
-            for (let i = 0; i < typeArgCount; i++) {
-                const name = typeArgCount < 8 ? String.fromCharCode(CharacterCodes.T + i) : `T${i}`;
-                const typeParameter = createTypeParameterDeclaration(name, /*constraint*/ undefined, /*defaultType*/ undefined);
-                (typeParameters ? typeParameters : typeParameters = []).push(typeParameter);
+        let typeParameters = signatureDeclaration.typeParameters;
+        let parameters = signatureDeclaration.parameters;
+        let type = signatureDeclaration.type;
+        if (importAdder) {
+            if (typeParameters) {
+                const newTypeParameters = sameMap(typeParameters, typeParameterDecl => {
+                    let constraint = typeParameterDecl.constraint;
+                    let defaultType = typeParameterDecl.default;
+                    if (constraint) {
+                        const importableReference = tryGetAutoImportableReferenceFromTypeNode(constraint, scriptTarget);
+                        if (importableReference) {
+                            constraint = importableReference.typeNode;
+                            importSymbols(importAdder, importableReference.symbols);
+                        }
+                    }
+                    if (defaultType) {
+                        const importableReference = tryGetAutoImportableReferenceFromTypeNode(defaultType, scriptTarget);
+                        if (importableReference) {
+                            defaultType = importableReference.typeNode;
+                            importSymbols(importAdder, importableReference.symbols);
+                        }
+                    }
+                    return factory.updateTypeParameterDeclaration(
+                        typeParameterDecl,
+                        typeParameterDecl.name,
+                        constraint,
+                        defaultType
+                    );
+                });
+                if (typeParameters !== newTypeParameters) {
+                    typeParameters = setTextRange(factory.createNodeArray(newTypeParameters, typeParameters.hasTrailingComma), typeParameters);
+                }
+            }
+            const newParameters = sameMap(parameters, parameterDecl => {
+                const importableReference = tryGetAutoImportableReferenceFromTypeNode(parameterDecl.type, scriptTarget);
+                let type = parameterDecl.type;
+                if (importableReference) {
+                    type = importableReference.typeNode;
+                    importSymbols(importAdder, importableReference.symbols);
+                }
+                return factory.updateParameterDeclaration(
+                    parameterDecl,
+                    parameterDecl.decorators,
+                    parameterDecl.modifiers,
+                    parameterDecl.dotDotDotToken,
+                    parameterDecl.name,
+                    parameterDecl.questionToken,
+                    type,
+                    parameterDecl.initializer
+                );
+            });
+            if (parameters !== newParameters) {
+                parameters = setTextRange(factory.createNodeArray(newParameters, parameters.hasTrailingComma), parameters);
+            }
+            if (type) {
+                const importableReference = tryGetAutoImportableReferenceFromTypeNode(type, scriptTarget);
+                if (importableReference) {
+                    type = importableReference.typeNode;
+                    importSymbols(importAdder, importableReference.symbols);
+                }
             }
         }
 
-        const newMethod = createMethod(
+        return factory.updateMethodDeclaration(
+            signatureDeclaration,
             /*decorators*/ undefined,
-            /*modifiers*/ makeStatic ? [createToken(SyntaxKind.StaticKeyword)] : undefined,
-            /*asteriskToken*/ undefined,
-            methodName,
-            /*questionToken*/ undefined,
+            modifiers,
+            signatureDeclaration.asteriskToken,
+            name,
+            optional ? factory.createToken(SyntaxKind.QuestionToken) : undefined,
             typeParameters,
             parameters,
-            /*type*/ includeTypeScriptSyntax ? createKeywordTypeNode(SyntaxKind.AnyKeyword) : undefined,
-            createStubbedMethodBody()
+            type,
+            body
         );
-        return newMethod;
     }
 
-    function createDummyParameters(argCount: number,  names: string[] | undefined, minArgumentCount: number | undefined, addAnyType: boolean) {
+    export function createSignatureDeclarationFromCallExpression(
+        kind: SyntaxKind.MethodDeclaration | SyntaxKind.FunctionDeclaration,
+        context: CodeFixContextBase,
+        importAdder: ImportAdder,
+        call: CallExpression,
+        name: Identifier,
+        modifierFlags: ModifierFlags,
+        contextNode: Node
+    ) {
+        const quotePreference = getQuotePreference(context.sourceFile, context.preferences);
+        const scriptTarget = getEmitScriptTarget(context.program.getCompilerOptions());
+        const tracker = getNoopSymbolTrackerWithResolver(context);
+        const checker = context.program.getTypeChecker();
+        const isJs = isInJSFile(contextNode);
+        const { typeArguments, arguments: args, parent } = call;
+
+        const contextualType = isJs ? undefined : checker.getContextualType(call);
+        const names = map(args, arg =>
+            isIdentifier(arg) ? arg.text : isPropertyAccessExpression(arg) && isIdentifier(arg.name) ? arg.name.text : undefined);
+        const types = isJs ? [] : map(args, arg =>
+            typeToAutoImportableTypeNode(checker, importAdder, checker.getBaseTypeOfLiteralType(checker.getTypeAtLocation(arg)), contextNode, scriptTarget, /*flags*/ undefined, tracker));
+
+        const modifiers = modifierFlags
+            ? factory.createNodeArray(factory.createModifiersFromModifierFlags(modifierFlags))
+            : undefined;
+        const asteriskToken = isYieldExpression(parent)
+            ? factory.createToken(SyntaxKind.AsteriskToken)
+            : undefined;
+        const typeParameters = isJs || typeArguments === undefined
+            ? undefined
+            : map(typeArguments, (_, i) =>
+                factory.createTypeParameterDeclaration(CharacterCodes.T + typeArguments.length - 1 <= CharacterCodes.Z ? String.fromCharCode(CharacterCodes.T + i) : `T${i}`));
+        const parameters = createDummyParameters(args.length, names, types, /*minArgumentCount*/ undefined, isJs);
+        const type = isJs || contextualType === undefined
+            ? undefined
+            : checker.typeToTypeNode(contextualType, contextNode, /*flags*/ undefined, tracker);
+
+        if (kind === SyntaxKind.MethodDeclaration) {
+            return factory.createMethodDeclaration(
+                /*decorators*/ undefined,
+                modifiers,
+                asteriskToken,
+                name,
+                /*questionToken*/ undefined,
+                typeParameters,
+                parameters,
+                type,
+                isInterfaceDeclaration(contextNode) ? undefined : createStubbedMethodBody(quotePreference)
+            );
+        }
+        return factory.createFunctionDeclaration(
+            /*decorators*/ undefined,
+            modifiers,
+            asteriskToken,
+            name,
+            typeParameters,
+            parameters,
+            type,
+            createStubbedBody(Diagnostics.Function_not_implemented.message, quotePreference)
+        );
+    }
+
+    export function typeToAutoImportableTypeNode(checker: TypeChecker, importAdder: ImportAdder, type: Type, contextNode: Node | undefined, scriptTarget: ScriptTarget, flags?: NodeBuilderFlags, tracker?: SymbolTracker): TypeNode | undefined {
+        const typeNode = checker.typeToTypeNode(type, contextNode, flags, tracker);
+        if (typeNode && isImportTypeNode(typeNode)) {
+            const importableReference = tryGetAutoImportableReferenceFromTypeNode(typeNode, scriptTarget);
+            if (importableReference) {
+                importSymbols(importAdder, importableReference.symbols);
+                return importableReference.typeNode;
+            }
+        }
+        return typeNode;
+    }
+
+    function createDummyParameters(argCount: number, names: (string | undefined)[] | undefined, types: (TypeNode | undefined)[] | undefined, minArgumentCount: number | undefined, inJs: boolean): ParameterDeclaration[] {
         const parameters: ParameterDeclaration[] = [];
         for (let i = 0; i < argCount; i++) {
-            const newParameter = createParameter(
+            const newParameter = factory.createParameterDeclaration(
                 /*decorators*/ undefined,
                 /*modifiers*/ undefined,
                 /*dotDotDotToken*/ undefined,
                 /*name*/ names && names[i] || `arg${i}`,
-                /*questionToken*/ minArgumentCount !== undefined && i >= minArgumentCount ? createToken(SyntaxKind.QuestionToken) : undefined,
-                /*type*/ addAnyType ? createKeywordTypeNode(SyntaxKind.AnyKeyword) : undefined,
+                /*questionToken*/ minArgumentCount !== undefined && i >= minArgumentCount ? factory.createToken(SyntaxKind.QuestionToken) : undefined,
+                /*type*/ inJs ? undefined : types && types[i] || factory.createKeywordTypeNode(SyntaxKind.AnyKeyword),
                 /*initializer*/ undefined);
             parameters.push(newParameter);
         }
-
         return parameters;
     }
 
-    function createMethodImplementingSignatures(signatures: ReadonlyArray<Signature>, name: PropertyName, optional: boolean, modifiers: ReadonlyArray<Modifier> | undefined): MethodDeclaration {
+    function createMethodImplementingSignatures(
+        signatures: readonly Signature[],
+        name: PropertyName,
+        optional: boolean,
+        modifiers: readonly Modifier[] | undefined,
+        quotePreference: QuotePreference,
+    ): MethodDeclaration {
         /** This is *a* signature with the maximal number of arguments,
          * such that if there is a "maximal" signature without rest arguments,
          * this is one of them.
@@ -195,26 +353,26 @@ namespace ts.codefix {
         let someSigHasRestParameter = false;
         for (const sig of signatures) {
             minArgumentCount = Math.min(sig.minArgumentCount, minArgumentCount);
-            if (sig.hasRestParameter) {
+            if (signatureHasRestParameter(sig)) {
                 someSigHasRestParameter = true;
             }
-            if (sig.parameters.length >= maxArgsSignature.parameters.length && (!sig.hasRestParameter || maxArgsSignature.hasRestParameter)) {
+            if (sig.parameters.length >= maxArgsSignature.parameters.length && (!signatureHasRestParameter(sig) || signatureHasRestParameter(maxArgsSignature))) {
                 maxArgsSignature = sig;
             }
         }
-        const maxNonRestArgs = maxArgsSignature.parameters.length - (maxArgsSignature.hasRestParameter ? 1 : 0);
+        const maxNonRestArgs = maxArgsSignature.parameters.length - (signatureHasRestParameter(maxArgsSignature) ? 1 : 0);
         const maxArgsParameterSymbolNames = maxArgsSignature.parameters.map(symbol => symbol.name);
 
-        const parameters = createDummyParameters(maxNonRestArgs, maxArgsParameterSymbolNames, minArgumentCount, /*addAnyType*/ true);
+        const parameters = createDummyParameters(maxNonRestArgs, maxArgsParameterSymbolNames, /* types */ undefined, minArgumentCount, /*inJs*/ false);
 
         if (someSigHasRestParameter) {
-            const anyArrayType = createArrayTypeNode(createKeywordTypeNode(SyntaxKind.AnyKeyword));
-            const restParameter = createParameter(
+            const anyArrayType = factory.createArrayTypeNode(factory.createKeywordTypeNode(SyntaxKind.AnyKeyword));
+            const restParameter = factory.createParameterDeclaration(
                 /*decorators*/ undefined,
                 /*modifiers*/ undefined,
-                createToken(SyntaxKind.DotDotDotToken),
+                factory.createToken(SyntaxKind.DotDotDotToken),
                 maxArgsParameterSymbolNames[maxNonRestArgs] || "rest",
-                /*questionToken*/ maxNonRestArgs >= minArgumentCount ? createToken(SyntaxKind.QuestionToken) : undefined,
+                /*questionToken*/ maxNonRestArgs >= minArgumentCount ? factory.createToken(SyntaxKind.QuestionToken) : undefined,
                 anyArrayType,
                 /*initializer*/ undefined);
             parameters.push(restParameter);
@@ -226,45 +384,143 @@ namespace ts.codefix {
             optional,
             /*typeParameters*/ undefined,
             parameters,
-            /*returnType*/ undefined);
+            /*returnType*/ undefined,
+            quotePreference);
     }
 
-    export function createStubbedMethod(
-        modifiers: ReadonlyArray<Modifier>,
+    function createStubbedMethod(
+        modifiers: readonly Modifier[] | undefined,
         name: PropertyName,
         optional: boolean,
-        typeParameters: ReadonlyArray<TypeParameterDeclaration> | undefined,
-        parameters: ReadonlyArray<ParameterDeclaration>,
-        returnType: TypeNode | undefined) {
-        return createMethod(
+        typeParameters: readonly TypeParameterDeclaration[] | undefined,
+        parameters: readonly ParameterDeclaration[],
+        returnType: TypeNode | undefined,
+        quotePreference: QuotePreference
+    ): MethodDeclaration {
+        return factory.createMethodDeclaration(
             /*decorators*/ undefined,
             modifiers,
             /*asteriskToken*/ undefined,
             name,
-            optional ? createToken(SyntaxKind.QuestionToken) : undefined,
+            optional ? factory.createToken(SyntaxKind.QuestionToken) : undefined,
             typeParameters,
             parameters,
             returnType,
-            createStubbedMethodBody());
+            createStubbedMethodBody(quotePreference));
     }
 
-    function createStubbedMethodBody() {
-        return createBlock(
-            [createThrow(
-                createNew(
-                    createIdentifier("Error"),
+    function createStubbedMethodBody(quotePreference: QuotePreference) {
+        return createStubbedBody(Diagnostics.Method_not_implemented.message, quotePreference);
+    }
+
+    export function createStubbedBody(text: string, quotePreference: QuotePreference): Block {
+        return factory.createBlock(
+            [factory.createThrowStatement(
+                factory.createNewExpression(
+                    factory.createIdentifier("Error"),
                     /*typeArguments*/ undefined,
-                    [createLiteral("Method not implemented.")]))],
+                    // TODO Handle auto quote preference.
+                    [factory.createStringLiteral(text, /*isSingleQuote*/ quotePreference === QuotePreference.Single)]))],
             /*multiline*/ true);
     }
 
-    function createVisibilityModifier(flags: ModifierFlags) {
+    function createVisibilityModifier(flags: ModifierFlags): Modifier | undefined {
         if (flags & ModifierFlags.Public) {
-            return createToken(SyntaxKind.PublicKeyword);
+            return factory.createToken(SyntaxKind.PublicKeyword);
         }
         else if (flags & ModifierFlags.Protected) {
-            return createToken(SyntaxKind.ProtectedKeyword);
+            return factory.createToken(SyntaxKind.ProtectedKeyword);
         }
         return undefined;
+    }
+
+    export function setJsonCompilerOptionValues(
+        changeTracker: textChanges.ChangeTracker,
+        configFile: TsConfigSourceFile,
+        options: [string, Expression][]
+    ) {
+        const tsconfigObjectLiteral = getTsConfigObjectLiteralExpression(configFile);
+        if (!tsconfigObjectLiteral) return undefined;
+
+        const compilerOptionsProperty = findJsonProperty(tsconfigObjectLiteral, "compilerOptions");
+        if (compilerOptionsProperty === undefined) {
+            changeTracker.insertNodeAtObjectStart(configFile, tsconfigObjectLiteral, createJsonPropertyAssignment(
+                "compilerOptions",
+                factory.createObjectLiteralExpression(options.map(([optionName, optionValue]) => createJsonPropertyAssignment(optionName, optionValue)), /*multiLine*/ true)));
+            return;
+        }
+
+        const compilerOptions = compilerOptionsProperty.initializer;
+        if (!isObjectLiteralExpression(compilerOptions)) {
+            return;
+        }
+
+        for (const [optionName, optionValue] of options) {
+            const optionProperty = findJsonProperty(compilerOptions, optionName);
+            if (optionProperty === undefined) {
+                changeTracker.insertNodeAtObjectStart(configFile, compilerOptions, createJsonPropertyAssignment(optionName, optionValue));
+            }
+            else {
+                changeTracker.replaceNode(configFile, optionProperty.initializer, optionValue);
+            }
+        }
+    }
+
+    export function setJsonCompilerOptionValue(
+        changeTracker: textChanges.ChangeTracker,
+        configFile: TsConfigSourceFile,
+        optionName: string,
+        optionValue: Expression,
+    ) {
+        setJsonCompilerOptionValues(changeTracker, configFile, [[optionName, optionValue]]);
+    }
+
+    export function createJsonPropertyAssignment(name: string, initializer: Expression) {
+        return factory.createPropertyAssignment(factory.createStringLiteral(name), initializer);
+    }
+
+    export function findJsonProperty(obj: ObjectLiteralExpression, name: string): PropertyAssignment | undefined {
+        return find(obj.properties, (p): p is PropertyAssignment => isPropertyAssignment(p) && !!p.name && isStringLiteral(p.name) && p.name.text === name);
+    }
+
+    /**
+     * Given a type node containing 'import("./a").SomeType<import("./b").OtherType<...>>',
+     * returns an equivalent type reference node with any nested ImportTypeNodes also replaced
+     * with type references, and a list of symbols that must be imported to use the type reference.
+     */
+    export function tryGetAutoImportableReferenceFromTypeNode(importTypeNode: TypeNode | undefined, scriptTarget: ScriptTarget) {
+        let symbols: Symbol[] | undefined;
+        const typeNode = visitNode(importTypeNode, visit);
+        if (symbols && typeNode) {
+            return { typeNode, symbols };
+        }
+
+        function visit(node: TypeNode): TypeNode;
+        function visit(node: Node): Node {
+            if (isLiteralImportTypeNode(node) && node.qualifier) {
+                // Symbol for the left-most thing after the dot
+                const firstIdentifier = getFirstIdentifier(node.qualifier);
+                const name = getNameForExportedSymbol(firstIdentifier.symbol, scriptTarget);
+                const qualifier = name !== firstIdentifier.text
+                    ? replaceFirstIdentifierOfEntityName(node.qualifier, factory.createIdentifier(name))
+                    : node.qualifier;
+
+                symbols = append(symbols, firstIdentifier.symbol);
+                const typeArguments = node.typeArguments?.map(visit);
+                return factory.createTypeReferenceNode(qualifier, typeArguments);
+            }
+            return visitEachChild(node, visit, nullTransformationContext);
+        }
+    }
+
+    function replaceFirstIdentifierOfEntityName(name: EntityName, newIdentifier: Identifier): EntityName {
+        if (name.kind === SyntaxKind.Identifier) {
+            return newIdentifier;
+        }
+        return factory.createQualifiedName(replaceFirstIdentifierOfEntityName(name.left, newIdentifier), name.right);
+    }
+
+    export function importSymbols(importAdder: ImportAdder, symbols: readonly Symbol[]) {
+        symbols.forEach(s => importAdder.addImportFromExportedSymbol(s, /*usageIsTypeOnly*/ true));
     }
 }

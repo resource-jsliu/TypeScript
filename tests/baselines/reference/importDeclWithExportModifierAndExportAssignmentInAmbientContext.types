@@ -1,17 +1,16 @@
 === tests/cases/compiler/importDeclWithExportModifierAndExportAssignmentInAmbientContext.ts ===
 declare module "m" {
-    module x {
->x : any
+>"m" : typeof import("m")
 
+    module x {
         interface c {
->c : c
         }
     }
     export import a = x.c;
 >a : any
->x : any
+>x : typeof x
 >c : a
 
     export = x;
->x : any
+>x : typeof x
 }

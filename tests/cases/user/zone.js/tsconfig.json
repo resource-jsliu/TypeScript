@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "strict": true,
-        "lib": ["es2015"],
-        "types": []
+        "lib": ["esnext", "dom"],
+        "types": ["node"]
     },
     "files": [
         "index.ts",

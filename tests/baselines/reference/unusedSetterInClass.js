@@ -2,7 +2,7 @@
 class Employee {
     private _fullName: string;
 
-    set fullName(newName: string) {
+    private set fullName(newName: string) {
         this._fullName = newName;
     }
 }
@@ -15,7 +15,7 @@ var Employee = /** @class */ (function () {
         set: function (newName) {
             this._fullName = newName;
         },
-        enumerable: true,
+        enumerable: false,
         configurable: true
     });
     return Employee;
